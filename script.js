@@ -24,16 +24,15 @@ const validateForm = (formData) => {
 };
 
 const getFilterParams = () => {
-  const params = new URLSearchParams();
   const formData = new FormData(filterFormEl);
 
-  for (let [key, value] of formData) {
+  return Array.from(formData).reduce((params, [key, value]) => {
     if (value.trim() !== '') {
       params.append(key, value.trim());
     }
-  }
 
-  return params;
+    return params;
+  }, new URLSearchParams());
 };
 
 const handleFormSubmit = async (e) => {
@@ -45,88 +44,75 @@ const handleFormSubmit = async (e) => {
     return;
   }
 
-  const film = {};
-
-  for (let [key, value] of formData) {
-    film[key] = value.trim();
-  }
+   const film = Object.fromEntries(
+    Array.from(formData, ([key, value]) => [key, value.trim()])
+  );
 
   film.isWatched = formData.has('isWatched');
 
-  if (await addFilm(film)) {
+   const isAdded = await addFilm(film);
+
+  if (isAdded) {
     filmFormEl.reset();
   }
 };
 
-const addFilm = async (film) => {
-  const response = await fetch(API_URL, {
+const addFilm = (film) => {
+  return fetch(API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...HEADERS,
     },
     body: JSON.stringify(film),
-  });
+  }).then((response) => {
+    if (response.ok) {
+      renderTable();
+      return true;
+    }
 
-    if (!response.ok) {
-    const { error } = await response.json();
-    errorEl.textContent = error;
-    return false;
-  }
-
-  renderTable();
-  return true;
-};
-
-const renderTable = async () => {
-  const response = await fetch(`${API_URL}?${getFilterParams()}`, {
-    headers: HEADERS,
-  });
-  const films = await response.json();
-
-  filmTableBodyEl.innerHTML = '';
-
-  films.forEach((film) => {
-    const row = document.createElement('tr');
-    const values = [
-      film.title,
-      film.genre,
-      film.releaseYear,
-      film.isWatched ? 'Да' : 'Нет',
-    ];
-
-    values.forEach((value) => {
-      const cell = document.createElement('td');
-      cell.textContent = value;
-      row.appendChild(cell);
+    return response.json().then(({ error }) => {
+      errorEl.textContent = error;
+      return false;
     });
-
-    const actionsCell = document.createElement('td');
-    actionsCell.innerHTML = `
-      <button type="button" class="delete-btn" data-action="delete" data-id="${film.id}">Удалить</button>
-    `;
-    row.appendChild(actionsCell);
-
-    filmTableBodyEl.appendChild(row);
   });
 };
 
-const deleteFilm = async (id) => {
-  await fetch(`${API_URL}/${id}`, {
-    method: 'DELETE',
-    headers: HEADERS,
-  });
+const renderTable = () => {
+  return fetch(`${API_URL}?${getFilterParams()}`, { headers: HEADERS })
+    .then((response) => response.json())
+    .then((films) => {
+      filmTableBodyEl.innerHTML = '';
 
-  renderTable();
+      films.forEach(({ id, title, genre, releaseYear, isWatched }) => {
+        const row = document.createElement('tr');
+        const values = [title, genre, releaseYear, isWatched ? 'Да' : 'Нет'];
+
+        values.forEach((value) => {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          row.appendChild(cell);
+        });
+
+        const actionsCell = document.createElement('td');
+        actionsCell.innerHTML = `
+          <button type="button" class="delete-btn" data-action="delete" data-id="${id}">Удалить</button>
+        `;
+        row.appendChild(actionsCell);
+
+        filmTableBodyEl.appendChild(row);
+      });
+    });
 };
 
-const deleteAllFilms = async () => {
-  await fetch(API_URL, {
-    method: 'DELETE',
-    headers: HEADERS,
-  });
+const deleteFilm = (id) => {
+  fetch(`${API_URL}/${id}`, { method: 'DELETE', headers: HEADERS })
+    .then(() => renderTable());
+};
 
-  renderTable();
+const deleteAllFilms = () => {
+  fetch(API_URL, { method: 'DELETE', headers: HEADERS })
+    .then(() => renderTable());
 };
 
 const actionDict = {
@@ -135,7 +121,6 @@ const actionDict = {
 
 filmFormEl.addEventListener('submit', handleFormSubmit);
 filterFormEl.addEventListener('input', renderTable);
-filterFormEl.addEventListener('submit', (e) => e.preventDefault());
 deleteAllBtnEl.addEventListener('click', deleteAllFilms);
 
 filmTableBodyEl.addEventListener('click', (e) => {
